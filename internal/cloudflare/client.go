@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	cf "github.com/cloudflare/cloudflare-go"
@@ -11,7 +12,8 @@ import (
 
 // Client wraps the cloudflare-go API client.
 type Client struct {
-	api *cf.API
+	api      *cf.API
+	useToken bool // true for API token, false for global API key
 }
 
 // ZoneInfo holds basic zone identification info.
@@ -20,23 +22,46 @@ type ZoneInfo struct {
 	Name string
 }
 
-// NewClient creates a new Cloudflare API client using the given API token.
+// NewClient creates a new Cloudflare API client.
+// It checks CLOUDFLARE_API_TOKEN first (scoped API token),
+// then falls back to CLOUDFLARE_API_KEY + CLOUDFLARE_API_EMAIL (global API key).
 func NewClient(token string) (*Client, error) {
-	if token == "" {
-		return nil, fmt.Errorf("CLOUDFLARE_API_TOKEN not set. Get a token at https://dash.cloudflare.com/profile/api-tokens")
+	// Try API token first
+	if token != "" {
+		api, err := cf.NewWithAPIToken(token)
+		if err != nil {
+			return nil, fmt.Errorf("creating cloudflare client: %w", err)
+		}
+		return &Client{api: api, useToken: true}, nil
 	}
-	api, err := cf.NewWithAPIToken(token)
-	if err != nil {
-		return nil, fmt.Errorf("creating cloudflare client: %w", err)
+
+	// Fall back to global API key
+	apiKey := os.Getenv("CLOUDFLARE_API_KEY")
+	apiEmail := os.Getenv("CLOUDFLARE_API_EMAIL")
+	if apiKey != "" && apiEmail != "" {
+		api, err := cf.New(apiKey, apiEmail)
+		if err != nil {
+			return nil, fmt.Errorf("creating cloudflare client: %w", err)
+		}
+		return &Client{api: api, useToken: false}, nil
 	}
-	return &Client{api: api}, nil
+
+	return nil, fmt.Errorf("no Cloudflare credentials found. Set either:\n  CLOUDFLARE_API_TOKEN (recommended)\n  CLOUDFLARE_API_KEY + CLOUDFLARE_API_EMAIL")
 }
 
-// VerifyToken checks that the API token is valid.
+// VerifyToken checks that the credentials are valid.
 func (c *Client) VerifyToken(ctx context.Context) error {
-	_, err := c.api.VerifyAPIToken(ctx)
+	if c.useToken {
+		_, err := c.api.VerifyAPIToken(ctx)
+		if err != nil {
+			return fmt.Errorf("invalid API token: %w", err)
+		}
+		return nil
+	}
+	// For global API key, verify by listing zones (no dedicated verify endpoint)
+	_, err := c.api.ListZones(ctx)
 	if err != nil {
-		return fmt.Errorf("invalid API token: %w", err)
+		return fmt.Errorf("invalid API key/email: %w", err)
 	}
 	return nil
 }
