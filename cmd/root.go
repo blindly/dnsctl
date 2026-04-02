@@ -5,8 +5,13 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 )
+
+func init() {
+	godotenv.Load() // silently load .env if present
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "dnsctl",
