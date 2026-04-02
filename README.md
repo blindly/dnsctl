@@ -13,8 +13,8 @@ go install github.com/blindly/dnsctl@latest
 ## Quick Start
 
 ```bash
-# Set your Cloudflare API token (or put it in a .env file)
-export CLOUDFLARE_API_TOKEN=your-token-here
+# Create a .env file with your Cloudflare API token
+echo "CLOUDFLARE_API_TOKEN=your-token-here" > .env
 
 # Initialize — picks zones, pulls records, creates git repo
 dnsctl init
@@ -38,11 +38,14 @@ dnsctl log
 | Command | Description |
 |---------|-------------|
 | `dnsctl init` | Authenticate, select zones, pull records, create git repo |
+| `dnsctl add` | Add more zones to an existing repo |
 | `dnsctl pull` | Fetch current records from Cloudflare and auto-commit |
 | `dnsctl status` | Show modified zone files |
 | `dnsctl diff` | Show record-level changes (`--raw` for git diff) |
 | `dnsctl commit -m "msg"` | Push local changes to Cloudflare |
 | `dnsctl log` | Show change history (`-n` to limit entries) |
+| `dnsctl update` | Update dnsctl to the latest version |
+| `dnsctl --version` | Show current version |
 
 ## Zone File Format
 
@@ -74,9 +77,20 @@ Records are sorted deterministically by type, then name, so diffs are always cle
 
 ## Authentication
 
-dnsctl reads `CLOUDFLARE_API_TOKEN` from the environment. It also auto-loads a `.env` file from the current directory if one exists.
+dnsctl auto-loads a `.env` file from the current directory.
 
-Create a token at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) with **Zone:Read** and **DNS:Edit** permissions.
+**Recommended:** Create a scoped API token at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) with these permissions:
+
+- **Zone / Zone / Read** — all zones
+- **Zone / DNS / Edit** — all zones
+
+Then add it to your `.env`:
+
+```
+CLOUDFLARE_API_TOKEN=your-token-here
+```
+
+A scoped token only grants the permissions dnsctl needs, so there's no risk if it leaks. Avoid using your Global API Key.
 
 ## How It Works
 
