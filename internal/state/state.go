@@ -9,9 +9,16 @@ import (
 	"github.com/wk/dnsctl/internal/zone"
 )
 
+type RecordState struct {
+	ID       string `json:"id"`
+	TTL      int    `json:"ttl"`
+	Proxied  *bool  `json:"proxied,omitempty"`
+	Priority *int   `json:"priority,omitempty"`
+}
+
 type ZoneState struct {
-	ZoneID  string            `json:"zone_id"`
-	Records map[string]string `json:"records"`
+	ZoneID  string                  `json:"zone_id"`
+	Records map[string]*RecordState `json:"records"` // record key -> record state
 }
 
 type State struct {
@@ -72,18 +79,54 @@ func ComputeChangeset(zs *ZoneState, localRecords []zone.Record) Changeset {
 		key := rec.Key()
 		seen[key] = true
 
-		if recordID, exists := zs.Records[key]; exists {
-			cs.Update = append(cs.Update, UpdateOp{RecordID: recordID, Record: rec})
+		if rs, exists := zs.Records[key]; exists {
+			// Only emit update if metadata actually changed
+			if metadataChanged(rs, rec) {
+				cs.Update = append(cs.Update, UpdateOp{RecordID: rs.ID, Record: rec})
+			}
 		} else {
 			cs.Create = append(cs.Create, CreateOp{Record: rec})
 		}
 	}
 
-	for key, recordID := range zs.Records {
+	for key, rs := range zs.Records {
 		if !seen[key] {
-			cs.Delete = append(cs.Delete, DeleteOp{RecordID: recordID, RecordKey: key})
+			cs.Delete = append(cs.Delete, DeleteOp{RecordID: rs.ID, RecordKey: key})
 		}
 	}
 
 	return cs
+}
+
+func metadataChanged(rs *RecordState, rec zone.Record) bool {
+	if rs.TTL != rec.TTL {
+		return true
+	}
+	if boolChanged(rs.Proxied, rec.Proxied) {
+		return true
+	}
+	if intChanged(rs.Priority, rec.Priority) {
+		return true
+	}
+	return false
+}
+
+func boolChanged(a, b *bool) bool {
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil || b == nil {
+		return true
+	}
+	return *a != *b
+}
+
+func intChanged(a, b *int) bool {
+	if a == nil && b == nil {
+		return false
+	}
+	if a == nil || b == nil {
+		return true
+	}
+	return *a != *b
 }

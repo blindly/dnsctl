@@ -74,28 +74,19 @@ func runCommit(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		remoteRecords, remoteIDMap, err := client.ListRecords(ctx, zs.ZoneID, zoneName)
+		_, remoteStateMap, err := client.ListRecords(ctx, zs.ZoneID, zoneName)
 		if err != nil {
 			return fmt.Errorf("checking remote state for %s: %w", zoneName, err)
 		}
-		_ = remoteRecords
-
-		// Check if any record IDs in state are no longer on remote, or remote has new records
-		remoteKeys := make(map[string]bool)
-		for key := range remoteIDMap {
-			remoteKeys[key] = true
-		}
 
 		for key := range zs.Records {
-			if !remoteKeys[key] {
-				return fmt.Errorf("Remote has changed. Run 'dnsctl pull' first")
+			if _, exists := remoteStateMap[key]; !exists {
+				return fmt.Errorf("remote has changed for %s. Run 'dnsctl pull' first", zoneName)
 			}
 		}
-
-		// Also check if remote has records not in state (someone added records remotely)
-		for key := range remoteIDMap {
-			if _, inState := zs.Records[key]; !inState {
-				return fmt.Errorf("Remote has changed. Run 'dnsctl pull' first")
+		for key := range remoteStateMap {
+			if _, exists := zs.Records[key]; !exists {
+				return fmt.Errorf("remote has changed for %s. Run 'dnsctl pull' first", zoneName)
 			}
 		}
 	}
@@ -203,7 +194,12 @@ func runCommit(cmd *cobra.Command, args []string) error {
 				allSucceeded = false
 				continue
 			}
-			zs.Records[op.Record.Key()] = newID
+			zs.Records[op.Record.Key()] = &state.RecordState{
+				ID:       newID,
+				TTL:      op.Record.TTL,
+				Proxied:  op.Record.Proxied,
+				Priority: op.Record.Priority,
+			}
 		}
 
 		// Updates
@@ -214,7 +210,11 @@ func runCommit(cmd *cobra.Command, args []string) error {
 				allSucceeded = false
 				continue
 			}
-			// Record ID stays the same for updates
+			// Update stored metadata
+			rs := zs.Records[op.Record.Key()]
+			rs.TTL = op.Record.TTL
+			rs.Proxied = op.Record.Proxied
+			rs.Priority = op.Record.Priority
 		}
 	}
 

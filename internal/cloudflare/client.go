@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	cf "github.com/cloudflare/cloudflare-go"
+	"github.com/wk/dnsctl/internal/state"
 	"github.com/wk/dnsctl/internal/zone"
 )
 
@@ -80,10 +81,8 @@ func (c *Client) ListZones(ctx context.Context) ([]ZoneInfo, error) {
 }
 
 // ListRecords fetches all DNS records for the given zone and returns them as
-// zone.Record values. It also returns an idMap mapping each record's Key() to
-// its Cloudflare record ID so callers can perform updates/deletes.
-// zoneName is required to simplify fully-qualified names to relative labels.
-func (c *Client) ListRecords(ctx context.Context, zoneID, zoneName string) ([]zone.Record, map[string]string, error) {
+// zone.Record values plus a map of record key -> RecordState for state tracking.
+func (c *Client) ListRecords(ctx context.Context, zoneID, zoneName string) ([]zone.Record, map[string]*state.RecordState, error) {
 	rc := cf.ZoneIdentifier(zoneID)
 	records, _, err := c.api.ListDNSRecords(ctx, rc, cf.ListDNSRecordsParams{})
 	if err != nil {
@@ -91,7 +90,7 @@ func (c *Client) ListRecords(ctx context.Context, zoneID, zoneName string) ([]zo
 	}
 
 	var zoneRecords []zone.Record
-	idMap := make(map[string]string)
+	stateMap := make(map[string]*state.RecordState)
 
 	for _, r := range records {
 		rec := zone.Record{
@@ -100,23 +99,29 @@ func (c *Client) ListRecords(ctx context.Context, zoneID, zoneName string) ([]zo
 			Content: r.Content,
 			TTL:     r.TTL,
 		}
+		rs := &state.RecordState{
+			ID:  r.ID,
+			TTL: r.TTL,
+		}
 		if r.Type == "A" || r.Type == "AAAA" || r.Type == "CNAME" {
 			if r.Proxied != nil {
 				proxied := *r.Proxied
 				rec.Proxied = &proxied
+				rs.Proxied = &proxied
 			}
 		}
 		if r.Type == "MX" || r.Type == "SRV" {
 			if r.Priority != nil {
 				priority := int(*r.Priority)
 				rec.Priority = &priority
+				rs.Priority = &priority
 			}
 		}
 		zoneRecords = append(zoneRecords, rec)
-		idMap[rec.Key()] = r.ID
+		stateMap[rec.Key()] = rs
 	}
 
-	return zoneRecords, idMap, nil
+	return zoneRecords, stateMap, nil
 }
 
 // CreateRecord creates a new DNS record and returns its Cloudflare record ID.
