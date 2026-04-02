@@ -83,7 +83,6 @@ func runPull(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	changed := false
 	var failures []string
 
 	for _, zoneName := range cfg.Zones {
@@ -121,14 +120,19 @@ func runPull(cmd *cobra.Command, args []string) error {
 		}
 
 		fmt.Printf("  %d records\n", len(records))
-		changed = true
 	}
 
 	if err := state.Save(config.StatePath(root), st); err != nil {
 		return fmt.Errorf("saving state: %w", err)
 	}
 
-	if !changed {
+	// Check if git actually has changes before committing
+	status, err := repo.Status()
+	if err != nil {
+		return fmt.Errorf("checking status: %w", err)
+	}
+
+	if status.IsClean() {
 		fmt.Println("Already up to date.")
 		return nil
 	}
@@ -136,6 +140,8 @@ func runPull(cmd *cobra.Command, args []string) error {
 	if err := repo.AddAllAndCommit("pull: sync records from Cloudflare"); err != nil {
 		return fmt.Errorf("auto-commit: %w", err)
 	}
+
+	fmt.Println("Pulled and committed.")
 
 	if len(failures) > 0 {
 		fmt.Fprintf(os.Stderr, "warning: some zones failed to pull: %v\n", failures)
