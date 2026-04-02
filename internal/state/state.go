@@ -45,6 +45,16 @@ type Changeset struct {
 	Delete []DeleteOp
 }
 
+// oldZoneState is the pre-v0.3.1 format where records mapped key -> ID string
+type oldZoneState struct {
+	ZoneID  string            `json:"zone_id"`
+	Records map[string]string `json:"records"`
+}
+
+type oldState struct {
+	Zones map[string]*oldZoneState `json:"zones,omitempty"`
+}
+
 func Load(path string) (*State, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -53,14 +63,37 @@ func Load(path string) (*State, error) {
 		}
 		return nil, fmt.Errorf("reading state file: %w", err)
 	}
+
+	// Try new format first
 	var s State
-	if err := json.Unmarshal(data, &s); err != nil {
+	if err := json.Unmarshal(data, &s); err == nil && s.Zones != nil {
+		return &s, nil
+	}
+
+	// Fall back to old format and migrate
+	var old oldState
+	if err := json.Unmarshal(data, &old); err != nil {
 		return nil, fmt.Errorf("parsing state file: %w", err)
 	}
-	if s.Zones == nil {
-		s.Zones = make(map[string]*ZoneState)
+
+	migrated := &State{Zones: make(map[string]*ZoneState)}
+	for name, ozs := range old.Zones {
+		zs := &ZoneState{
+			ZoneID:  ozs.ZoneID,
+			Records: make(map[string]*RecordState),
+		}
+		for key, id := range ozs.Records {
+			zs.Records[key] = &RecordState{ID: id}
+		}
+		migrated.Zones[name] = zs
 	}
-	return &s, nil
+
+	// Save migrated state
+	if err := Save(path, migrated); err != nil {
+		return nil, fmt.Errorf("migrating state file: %w", err)
+	}
+
+	return migrated, nil
 }
 
 func Save(path string, s *State) error {
